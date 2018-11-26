@@ -1,2 +1,9 @@
 *.o
 occ
+tmp
+tmp.s
+
+
+cmake-build-debug/
+venv/
+.idea/
