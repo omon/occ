@@ -11,7 +11,9 @@ def test(expected, input):
     os.system('gcc --static -o tmp tmp.s')
     result = subprocess.run('./tmp')
     ret = result.returncode
-    if ret != expected:
+    if ret == expected:
+        print('{0} => {1}'.format(input , expected)) 
+    else:
         print('{0} expected but not {1}'.format(input, ret))
         print(' ==== NG ==========')
         sys.exit(1)
@@ -20,4 +22,6 @@ def test(expected, input):
 if __name__ == '__main__':
     test(0, 0)
     test(42, 42)
+    test(21, '5+20-4')
     print('OK')
+    
