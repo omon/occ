@@ -20,8 +20,8 @@ def test(expected, input):
     return True
 
 if __name__ == '__main__':
-    test(0, 0)
-    test(42, 42)
+    test(0, '0')
+    test(42, '42')
     test(21, '5+20-4')
     test(41, '"12 + 34 - 5"')
     print('OK')
