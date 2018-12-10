@@ -8,6 +8,7 @@
 #include <memory>
 #include <iterator>
 #include "hal_asm_inline.h"
+#include <assert.h>
 
 
 // Token Number class
@@ -25,7 +26,7 @@ class Token {
 private:
 
 public:
-    Token(TokenNumber _type, int _value, string _input) {
+    Token(TokenNumber _type, int _value, std::string _input) {
         type = _type;
         value = _value;
         input = _input;
@@ -36,13 +37,20 @@ public:
     string input;
 };
 
+template <typename First>
+void error(const First &first) {
+    std:
+    cerr << first << std::endl;
+}
 
 /**
  * error reporting funtion
  * @param i
  */
-void fail(string input) {
-    cerr << "unexpected token: " << input << endl;
+template<typename First, typename... Rest>
+void error(const First &first, const Rest &... rest) {
+    std::cerr << first << std::endl;
+    error(rest...);
     exit(1);
 }
 
@@ -51,13 +59,15 @@ void fail(string input) {
 vector<unique_ptr<Token>> tokens;
 
 static bool is_number_character(std::string character) {
-    if (character[0] >= 0x30 && character[0] <= 0x39) {
-        return true;
-    } else {
-        return false;
-    }
+    return character[0] >= 0x30 && character[0] <= 0x39;
 }
 
+
+/**
+ * remove what is not ascii.
+ * @param _code  std::string source code
+ * @return std::string source code as ascii
+ */
 static std::string get_ascii_code(std::string _code) {
     int char_size;
     vector<string> v;
@@ -82,50 +92,121 @@ static std::string get_ascii_code(std::string _code) {
     return os.str();
 }
 
-vector<std::string> split(const string &s, char delim) {
-    vector<string> elems;
-    string item;
-    for (char ch: s) {
-        if (ch == delim) {
-            if (!item.empty())
-                elems.push_back(item);
-            item.clear();
-        }
-        else {
-            item += ch;
-        }
+
+int pos = 0;
+
+class Node {
+
+public:
+    TokenNumber type;       // node type
+    struct Node *left_hand_side;
+    struct Node *right_hand_side;
+    int value;
+
+    Node(int v) {
+        type = TokenNumber ::Number;
+        value = v;
     }
-    if (!item.empty())
-        elems.push_back(item);
-    return elems;
+
+    Node(TokenNumber _type, int v, Node *left, Node *right) {
+        type = _type;
+        value = v;
+        left_hand_side = left;
+        right_hand_side = right;
+    }
+private:
+
+};
+
+Node *number() {
+    if (tokens[pos]->type == TokenNumber::Number) {
+        return new Node(tokens[pos++]->value);
+    }
+}
+
+Node *expr() {
+    Node *left_hand_side = number();
+    for (;;) {
+        TokenNumber op = tokens[pos]->type;
+        if (op != TokenNumber::plus && op != TokenNumber::minus) {
+            break;
+        }
+        pos++;
+        left_hand_side = new Node(op, tokens[pos]->value, left_hand_side, number());
+    }
+    if (tokens[pos]->type != TokenNumber::EndOfFile) {
+        error("stray token: ", tokens[pos]->input);
+    }
+    return left_hand_side;
+}
+
+// code generator
+static const vector<string> regs = {"rdi", "rsi", "r10", "r11", "r12", "r13", "r14", "r15", ""};
+int cur;
+
+
+/**
+ * generate assembly code
+ * @param node generate node.
+ * @return
+ */
+static std::string generate(Node *node) {
+    if (node->type == TokenNumber::Number) {
+        std::string reg = regs[cur++];
+        if (reg == "") {
+            error("register exhausted.");
+        }
+        cout << hal_asm_mov(reg, to_string(node->value)) << endl;
+        return reg;
+    }
+    string dst = generate(node->left_hand_side);
+    string src = generate(node->right_hand_side);
+
+    if (node->type == TokenNumber::plus) {
+        cout << hal_asm_add(dst, src) << endl;
+        return dst;
+    } else if (node->type == TokenNumber::minus) {
+        cout << hal_asm_sub(dst, src) << endl;
+        return dst;
+    } else {
+        assert(0 && "unknown oprator.");
+    }
 }
 
 
+/**
+ * tokenize function
+ * @param _code input source code.
+ */
 static void tokenize(std::string _code) {
-    char *code = const_cast<char *>(get_ascii_code(_code).c_str());
-
-    while(*code){
-        if (isspace(*code)) {
+    char *code = const_cast<char *>(get_ascii_code(_code).c_str());  // get ascii char from source code.
+    while (*code) {
+        if (isspace(*code)) {  // ignore space
             code++;
-        }else if (*code == '+') {
+        } else if (*code == '+') {      // add token plus
             tokens.push_back(unique_ptr<Token>(new Token(TokenNumber::plus, 0, code)));
             code++;
-        } else if (*code == '-') {
+        } else if (*code == '-') {      // add token minus
             tokens.push_back(unique_ptr<Token>(new Token(TokenNumber::minus, 0, code)));
             code++;
-        } else if (isdigit(*code)) {           // Number
+        } else if (isdigit(*code)) {           // add token Number
             char *store = code;
             int i = strtol(code, &code, 10);
             tokens.push_back(unique_ptr<Token>(new Token(TokenNumber::Number, i, store)));
-        } else {
+        } else {            // error code
             cerr << "cannot tokenize ..[" << *code << "]" << endl;
             exit(1);
         }
     }
-    tokens.push_back(unique_ptr<Token>(new Token(TokenNumber::EndOfFile, 0, code)));
+    tokens.push_back(unique_ptr<Token>(new Token(TokenNumber::EndOfFile, 0, code)));        // add token end of file
 }
 
-
+/**
+ * occ main function
+ * @param argc
+ * @param argv
+ * @return
+ */
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         cerr << "Usage : occ <code>" << endl;
@@ -133,47 +214,16 @@ int main(int argc, char *argv[]) {
     }
     // argument to vector<string>
     vector<string> args(argv, argv + argc);
-    //cout << args.size() << endl;
-    //for (auto v : args) {
-    //    cout << v << endl;
-    //}
 
-    tokenize(args[1]);
+    tokenize(args[1]);      //  tokenize source code.
+    Node *node = expr();
+
     cout << hal_asm_initial_1() << endl;
     cout << hal_asm_gobal_main() << endl;
     cout << hal_asm_main_function() << endl;
 
-    // check the first token is Number.
-    if (tokens[0]->type != TokenNumber::Number) {
-        fail(tokens[0]->input);
-    }
+    cout << hal_asm_mov_rax(generate(node)) << endl;
 
-    cout << hal_asm_mov(tokens[0]->value) << endl;
-
-    int index = 1;
-    while (tokens[index]->type != TokenNumber::EndOfFile) {
-        if (tokens[index]->type == TokenNumber::plus) {
-            index++;
-            if (tokens[index]->type != TokenNumber::Number) {
-                fail(tokens[index]->input);
-            }
-
-            cout << hal_asm_add(tokens[index]->value) << endl;
-            index++;
-            continue;
-        }
-        if (tokens[index]->type == TokenNumber::minus) {
-            index++;
-            if (tokens[index]->type != TokenNumber::Number) {
-                fail(tokens[index]->input);
-            }
-
-            cout << hal_asm_sub(tokens[index]->value) << endl;
-            index++;
-            continue;
-        }
-        fail(tokens[index]->input);
-    }
-    cout << "  ret" << endl;
+    cout << hal_asm_return() << endl;
     return 0;
 }
